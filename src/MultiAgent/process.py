@@ -209,62 +209,53 @@ class MultiAgent_RAG:
         return self.tasks.create_sub_queries_classification_task_without_specific_collection.output.pydantic
         
             
-    def global_topic_reranking_run_batch_async(self, **kwargs):
+    # def global_topic_reranking_run_batch_async(self, **kwargs):
+    #     """
+    #     Run the global topic reranking task asynchronously in batches.
+
+    #     Args:
+    #         **kwargs: Must include 'node_batch_inputs' (List[Dict]).
+    #         node_batch_inputs: List of Dicts containing:
+    #             user_query (str): The user query.
+    #             sub_queries (Optional[List[str]]): The sub-queries.
+    #             batch_communities (List[str]): The batch communities.
+    #             batch_size (int): The batch size.
+
+    #     Returns:
+    #         TopicRerankingResult: A Pydantic model containing:
+    #             - relevant_scores (List[int]): List of relevance scores for topics.
+    #     """
+    #     results = self.run_crew_batch_async(   
+    #         node_agents=["Reranker"],
+    #         node_tasks=["Global Topic Reranking"],
+    #         node_process="Sequential",
+    #         node_batch_inputs=kwargs.get("node_batch_inputs")
+    #     )
+    #     all_scores = []
+    #     for result in results:
+    #         batch_scores = result.pydantic.relevant_scores
+    #         all_scores.extend(batch_scores)
+    #     return TopicRerankingResult(relevant_scores=all_scores)
+    
+    def global_mapping_run(self, **kwargs):
         """
-        Run the global topic reranking task asynchronously in batches.
+        Run the global mapping task.
 
         Args:
             **kwargs: Must include 'node_batch_inputs' (List[Dict]).
             node_batch_inputs: List of Dicts containing:
                 user_query (str): The user query.
-                sub_queries (Optional[List[str]]): The sub-queries.
                 batch_communities (List[str]): The batch communities.
-                batch_size (int): The batch size.
-
-        Returns:
-            TopicRerankingResult: A Pydantic model containing:
-                - relevant_scores (List[int]): List of relevance scores for topics.
         """
-        results = self.run_crew_batch_async(   
-            node_agents=["Reranker"],
-            node_tasks=["Global Topic Reranking"],
+        self.run_crew(   
+            node_agents=["Synthesizer"],
+            node_tasks=["Global Mapping"],
             node_process="Sequential",
-            node_batch_inputs=kwargs.get("node_batch_inputs")
+            node_inputs={"user_query": kwargs.get("user_query"), 
+                        "batch_data": kwargs.get("batch_data"),
+                        }
         )
-        all_scores = []
-        for result in results:
-            batch_scores = result.pydantic.relevant_scores
-            all_scores.extend(batch_scores)
-        return TopicRerankingResult(relevant_scores=all_scores)
-    
-    
-    def local_topic_reranking_run_batch_async(self, **kwargs):
-        """
-        Run the local topic reranking task asynchronously in batches.
-
-        Args:
-            **kwargs: Must include 'node_batch_inputs' (List[Dict]).
-            node_batch_inputs: List of Dicts containing:
-                user_query (str): The user query.
-                sub_queries (Optional[List[str]]): The sub-queries.
-                batch_data (List[str]): The batch data.
-                batch_size (int): The batch size.
-
-        Returns:
-            TopicRerankingResult: A Pydantic model containing:
-                - relevant_scores (List[int]): List of relevance scores for topics.
-        """
-        results = self.run_crew_batch_async(   
-            node_agents=["Reranker"],
-            node_tasks=["Local Topic Reranking"],
-            node_process="Sequential",
-            node_batch_inputs=kwargs.get("node_batch_inputs")
-        )
-        all_scores = []
-        for result in results:
-            batch_scores = result.pydantic.relevant_scores
-            all_scores.extend(batch_scores)
-        return TopicRerankingResult(relevant_scores=all_scores)
+        return self.tasks.create_global_mapping_task.output.pydantic
         
         
     def global_topic_searching_run(self, **kwargs):

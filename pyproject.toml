@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "coling-experiment"
+name = "multi-agentic-hybrid-rag-experiment"
 version = "0.1.0"
-description = "Modular Agentic RAG"
+description = "Multi-Agentic Hybrid RAG Experiment"
 authors = ["yarikama <amaki30226@gmail.com>"]
 readme = "README.md"
 

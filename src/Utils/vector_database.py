@@ -9,17 +9,31 @@ from collections import Counter
 from typing import List, Dict, Any
 from pymilvus import WeightedRanker, RRFRanker, connections, FieldSchema, CollectionSchema, DataType, Collection, MilvusClient, AnnSearchRequest
 import warnings
+
 class VectorDatabase:
+    _instance = None
+
+    def __new__(cls, 
+                host: str = const.MILVUS_HOST, 
+                port: str = const.MILVUS_PORT, 
+                database_name: str = const.MILVUS_DATABASE_NAME):
+        if cls._instance is None:
+            cls._instance = super(VectorDatabase, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self, 
                 host: str = const.MILVUS_HOST, 
                 port: str = const.MILVUS_PORT, 
-                database_name: str = const.MILVUS_DATABASE_NAME
-                ):
-        
+                database_name: str = const.MILVUS_DATABASE_NAME):
+        if self._initialized:
+            return
         self.host = host
         self.port = port
         self.database_name = database_name
         self.client = self.connect()
+        self._initialized = True
+        self.loaded_collections = set()  
         print("VectorDatabase initialized.")
         
     def connect(self):
@@ -118,12 +132,19 @@ class VectorDatabase:
         pass
 
     def load_collection(self, collection_name: str):
-        self.client.load_collection(collection_name=collection_name)
+        collection = self.get_collection(collection_name)
+        if collection_name in self.loaded_collections:
+            print(f"Collection {collection_name} is already loaded.")
+            return collection
+        collection.load()
+        self.loaded_collections.add(collection_name)
         print(f"Collection {collection_name} loaded into memory.")
+        return collection
 
     def release_collection(self, collection_name: str):
         collection = self.get_collection(collection_name)
         collection.release()
+        self.loaded_collections.discard(collection_name)  # 從已加載集合中移除
         print(f"Collection {collection_name} released from memory.")
 
     def drop_collection(self, collection_name: str):
@@ -175,8 +196,7 @@ class VectorDatabase:
                 - content: str -> The content of the document
                 - metadata: Dict[str, Any] -> The metadata of the document
         """
-        collection = self.get_collection(collection_name)
-        collection.load()
+        collection = self.load_collection(collection_name)
         rerank = WeightedRanker(*weights) if rerank_type == "weighted" else RRFRanker()
         milvus_results = collection.hybrid_search(
             search_requests, 
@@ -185,8 +205,6 @@ class VectorDatabase:
             output_fields=["content", "metadata"]
         )
         contents = [self.get_content_from_hits(hits) for hits in milvus_results]
-        collection.release()
-
         return contents
     
     def search(self, 
@@ -195,8 +213,7 @@ class VectorDatabase:
                top_k: int = const.TOP_K
                ) -> List[Dict[str, Any]]:
         
-        collection = self.get_collection(collection_name)
-        collection.load()  
+        collection = self.load_collection(collection_name)
         search_params = {
             "data": search_request.data,
             "anns_field": search_request.anns_field,
@@ -206,15 +223,12 @@ class VectorDatabase:
         }
         milvus_results = collection.search(**search_params)        
         contents = [self.get_content_from_hits(hits) for hits in milvus_results]
-        collection.release()
         return contents
     
     def get_all_entities(self, 
                          collection_name: str):
         
-        collection = self.get_collection(collection_name)
-        collection.load()
-        
+        collection = self.load_collection(collection_name)
         iterator = collection.query_iterator(batch_size=16384,
                                              expr="id > 0",
                                              output_fields=["id","dense_vector","content","metadata"],)  
@@ -299,10 +313,7 @@ class VectorDatabase:
                        collection_name: str,
                        search_limit):
         
-        collection = self.get_collection(collection_name)
-        collection.load()
-        
-        
+        collection = self.load_collection(collection_name)
         file_path = f'../tests/{collection_name}_all_entities.parquet'
         vectors = []
         df = pd.read_parquet(file_path)
@@ -392,10 +403,7 @@ class VectorDatabase:
                        collection_name: str,
                        search_limit):
         
-        collection = self.get_collection(collection_name)
-        collection.load()
-        
-        
+        collection = self.load_collection(collection_name)
         file_path = f'../tests/{collection_name}_all_entities.parquet'
         vectors = []
         df = pd.read_parquet(file_path)

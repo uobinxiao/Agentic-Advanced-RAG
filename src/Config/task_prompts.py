@@ -186,35 +186,48 @@ RETRIEVAL_EXPECTED_OUTPUT = dedent("""
 A RetrievalResult pydantic object containing consolidated metadata and content lists.
 """)
 
-# Topic Reranking Task
-GLOBAL_TOPIC_RERANKING_PROMPT = dedent("""
-Your task is to evaluate each community's relevance to the user's query or sub-queries relevant to the user's query.
+GLOBAL_MAPPING_PROMPT = dedent("""
+Your task is to analyze all provided community information and generate two types of outputs related to the user's query.
 User Query: "{user_query}"
-And the sub-queries: "{sub_queries}"
+Sub-queries: "{sub_queries}"
 
 Your specific responsibilities are:
-1. Compare each community to the user's query and sub-queries.
-2. Assign a relevance score to each community based on how well it matches the user's query and sub-queries from 0 to 100.
-   - Higher scores indicate better relevance.
-3. Create a list of these relevance scores, don't include any other information.
-4. CRITICAL: Ensure the number of scores in your output list EXACTLY matches the number of communities :{batch_size} in the input.
 
-You will receive a list of {batch_size} communities. 
-----------------batch_communities----------------
-{batch_data}
+1. Analyze all community information:
+   ----------------batch_communities----------------
+   {batch_data}
+
+2. Generate two lists:
+   a) Key Points List:
+      - Create a list of unique and relevant key points derived from all community information.
+      - Each key point should either be directly related to the user query or capable of answering it.
+      - If all community information does not provide any information related to the user query or sub-queries, return an empty list.
+      - Aim for comprehensive coverage while avoiding redundancy.
+      - Do not include any other information not related to the user query or sub-queries.
+      - Do not tell me that the community information does not provide any information related to the user query or sub-queries.
+
+   b) Imagined Answers List:
+      - Based on the community information, imagine possible answers to the user query.
+      - These answers should be plausible extensions or interpretations of the available information.
+      - Ensure diversity in the imagined answers to cover various possibilities.
+      - You don't have to create too many possible answers, 2-3 is enough, focus on the key points.
+      - If you don't have enough information to answer the query, just randomly aggregate information from the retrieved data.
 
 Important notes:
-- The order of your relevance scores must match the exact order of the communities in the input.
-- Maintain consistency in your scoring method across all communities.
-- Do not include any explanations or additional text outside the Pydantic object.
-- If you find that your score list does not match the number of communities : {batch_size}, you MUST redo the entire process until it does.
-
-FINAL CHECK: Before submitting your response, be sure that the scores list contains exactly {batch_size} relevance scores.
+- Focus on quality and relevance rather than quantity for both lists.
+- Ensure that the key points and imagined answers are distinct from each other.
+- Aim for clarity and conciseness in both key points and imagined answers.
+- The key points and imagined answers should be related to the user query.
+Your output should be a pydantic object with the following structure, do not include datatype like dict in your output:
+class GlobalMappingResult(BaseModel):
+    communities_summaries: List[str]
+    possible_answers: List[str]
 """)
 
-GLOBAL_TOPIC_RERANKING_EXPECTED_OUTPUT = dedent("""
-class TopicRerankingResult(BaseModel):
-    relevant_scores: List[int]
+GLOBAL_MAPPING_EXPECTED_OUTPUT = dedent("""
+class GlobalMappingResult(BaseModel):
+    communities_summaries: List[str]
+    possible_answers: List[str]
 """)
 
 LOCAL_TOPIC_RERANKING_PROMPT = dedent("""
@@ -367,56 +380,23 @@ RETRIEVAL_DETAIL_DATA_FROM_TOPIC_EXPECTED_OUTPUT = dedent("""
 A RetrievalResult pydantic object containing consolidated metadata and content lists.
 """)
 
-# Reranking Detail Data Task
-RERANKING_PROMPT = dedent("""
-Your task is to evaluate each retrieved data item's relevance to the user's query or sub-queries relevant to the user's query.
------User Query-----
-"{user_query}"
-
------Sub-queries-----
-"{sub_queries}"
-
-Your specific responsibilities are:
-1. Compare each data item to the user's query and sub-queries.
-2. Assign a relevance score to each data item based on how well it matches the user's query from 0 to 100.
-   - Higher scores indicate better relevance.
-3. Create a list of these relevance scores, don't include any other information.
-4. CRITICAL: Ensure the number of scores in your output list EXACTLY matches the number of data items :{batch_size} in the input.
-
-You will receive a list of {batch_size} data items. 
-----------------batch_retrieved_data----------------
-{batch_data}
-
-Important notes:
-- The order of your relevance scores must match the exact order of the data items in the input.
-- Maintain consistency in your scoring method across all data items.
-- Do not include any explanations or additional text outside the Pydantic object.
-- If you find that your score list does not match the number of data items : {batch_size}, you MUST redo the entire process until it does.
-
-FINAL CHECK: Before submitting your response, be sure that the scores list contains exactly {batch_size} relevance scores.
-""")
-
-RERANKING_EXPECTED_OUTPUT = dedent("""
-Your output should be a RerankingResult object.
-class RerankingResult(BaseModel):
-    relevance_scores: List[int]
-""")
-
 # Information Organization Task
 INFORMATION_ORGANIZATION_PROMPT = dedent("""
 Input:
-1. Retrieved Data: {retrieved_data}
-3. User Query: {user_query}
-4. Sub-queries relevant to the user's query: {sub_queries}
+1. User Query: {user_query}
+2. Sub-queries relevant to the user's query: {sub_queries}
+3. Retrieved Data: {retrieved_data}
 
 Your tasks:
 1. Carefully review the retrieved data.
 2. Pick up helpful information from the retrieved data to answer the user's query and remove the irrelevant information.
-3. Organize the information into strings and preserve the original language, especially modal verbs like "shall", "may", "must", etc., that indicate levels of certainty or possibility.
+3. Organize and aggregate the information into strings and preserve the original language, especially modal verbs like "shall", "may", "must", etc., that indicate levels of certainty or possibility.
 4. Identify and highlight any connections or contradictions between different pieces of information.
 5. Structure the data in a way that facilitates easy understanding, without losing important details or nuances.
 6. Include relevant metadata, timestamps, organizing it alongside the corresponding information.
 7. Return the organized information in a pydantic object:
+8. If the user query requires temporal information, generate an additional string that describes the chronological order of helpful information.
+
 class InformationOrganizationResult(BaseModel):
     organized_information: List[str]
     
@@ -424,8 +404,6 @@ Guidelines:
 - Maintain the integrity of the original information. Do not add, infer, or fabricate any information not present in the original data.
 - Be very careful with temporal information especially for user queries that ask about time.
 - If information seems contradictory or inconsistent, note this without attempting to resolve the contradiction.
-- Highlight gaps in the information or areas where data is insufficient.
-- Maintain objectivity and avoid interpreting or drawing conclusions from the data.
 """)
 
 INFORMATION_ORGANIZATION_EXPECTED_OUTPUT = dedent("""
@@ -444,14 +422,18 @@ Retrieval Needed: {retrieval_needed}
 {information}
 
 Your task:
-1. If Retrieval_Needed is True, and you don't have enough information to generate a response, tell that you don't have enough information to answer the query.
-2. Otherwise, generate a response based on general knowledge or the information provided.
-3. If there is information helpful to answer the query, review the original user query and relevant sub-queries.
-4. Carefully examine the data provided by the information organizer for each sub-query, especially the temporal, comparative, and conditional information.
-5. You should give a direct answer to the user's query first, and then explain the answer in detail.
--  If the user's query can be answered by Yes or No, you should give a direct Yes or No answer and then explain the answer in detail.
--  If the answer is asking for a specific information, you should give a direct answer to the user's query and then explain the answer in detail.
-6. Include the metadata in the answer.
+1. If the query contains negations or complex logic, explicitly define your understanding of key terms (e.g., "inconsistent").
+2. If Retrieval_Needed is True, and you don't have enough information to generate a response, state that Insufficient information.
+3. Otherwise, generate a response based on general knowledge or the information provided.
+4. Review the original user query and relevant sub-queries.
+5. Carefully examine the data provided for each sub-query, especially temporal, comparative, and conditional information.
+6. Structure your response as follows:
+   a) Short Answer: At the very beginning of your response, provide a direct, concise answer 
+   (e.g., Yes/No for yes/no, did/didn't, have/haven't questions, or specific information for other types of queries.)
+   b) Detailed Explanation: Explain your answer comprehensively.
+   c) For example: [Yes/No/Specific information] [Comprehensive explanation]
+8. Perform a logic check: Ensure your short answer logically aligns with your detailed explanation and the original query.
+8. Self-verify: Before finalizing, double-check that your answer directly addresses the original query: {user_query}
 """)
 
 GENERATION_EXPECTED_OUTPUT = dedent("""

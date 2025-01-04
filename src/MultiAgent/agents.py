@@ -35,7 +35,8 @@ class Agents:
         self.create_classifier = self._classifier()
         self.create_topic_searcher = self._topic_searcher()
         self.create_retriever = self._retriever()
-        self.create_reranker = self._reranker()
+        # self.create_reranker = self._reranker()
+        self.create_synthesizer = self._synthesizer()
         self.create_information_organizer = self._information_organizer()
         self.create_generator = self._generator()
         self.create_response_auditor = self._response_auditor()
@@ -47,7 +48,8 @@ class Agents:
             "Query Processor": self.create_query_processor,
             "Topic Searcher": self.create_topic_searcher,
             "Retriever": self.create_retriever,
-            "Reranker": self.create_reranker,
+            # "Reranker": self.create_reranker,
+            "Synthesizer": self.create_synthesizer,
             "Information Organizer": self.create_information_organizer,
             "Generator": self.create_generator,
             "Response Auditor": self.create_response_auditor,
@@ -73,60 +75,6 @@ class Agents:
             else:
                 raise ValueError(f"Agent '{agent_name}' not found in agent_map.")
         return agents_list
-    
-    # # Getters for all agents in nodes
-    # def get_user_query_classification_node_agent(self):
-    #     return [
-    #         self.create_classifier,
-    #     ]
-        
-    # def get_retrieval_and_generation_node_agent(self):
-    #     return [
-    #         self.create_retriever,
-    #         self.create_reranker,
-    #         self.create_generator,
-    #         self.create_summarizer,
-    #         self.create_response_auditor,
-    #     ]
-        
-    # def get_generation_node_agent(self):
-    #     return [
-    #         self.create_generator,
-    #         self.create_summarizer,
-    #         self.create_response_auditor,
-    #     ]
-        
-    # def get_database_update_node_agent(self):
-    #     return [
-    #         self.create_database_updater,
-    #     ]
-    
-    # # Getters for all agents in overall process
-    # def get_sequential_agents(self):
-    #     return [
-    #         self.create_classifier,
-    #         self.create_plan_coordinator, # Only Plan Coordinator is used in Sequential
-    #         self.create_query_processor,
-    #         self.create_retriever,
-    #         self.create_reranker,
-    #         self.create_generator,
-    #         self.create_summarizer,
-    #         self.create_response_auditor,
-    #         self.create_database_updater,
-    #     ]
-        
-    # def get_hierarchical_agents(self):
-    #     return [
-    #         self.create_classifier,
-    #         self.create_query_processor,
-    #         self.create_retriever,
-    #         self.create_reranker,
-    #         self.create_generator,
-    #         self.create_summarizer,
-    #         self.create_response_auditor,
-    #         self.create_database_updater,
-    #     ]
-    
         
     # Agent definitions
     def _classifier(self):
@@ -228,17 +176,15 @@ class Agents:
 #             callbacks=[self.callback_function],
         )
         
-    def _reranker(self):
+    def _synthesizer(self):
         return Agent(
-            role='Reranker',
-            goal="""Evaluate and reorder retrieved data based on query relevance,
-            and assess the relevance of retrieved data to the original query.
-            You need to carefully compare each piece of data to the query, assign a relevance score,
-            """,
+            role='Synthesizer',
+            goal="""
+            Summarize and synthesize information from various communities accurately, without fabrication or alteration of original content.
+            Generate creative, speculative answers based on the synthesized information to address user queries.""",
             backstory="""
-            You are a former search engine optimizer with a keen eye for relevance. Your experience 
-            in ranking information has given you unique insights into assessing and prioritizing 
-            information based on its pertinence to a given query.
+            An experienced information synthesis analyst skilled in extracting key insights from diverse data sources, 
+            identifying patterns, and generating both factual summaries and creative interpretations.
             """,
             verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
@@ -246,7 +192,7 @@ class Agents:
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
-
+        
     def _information_organizer(self):
         return Agent(
             role='Information Organizer',
@@ -320,4 +266,21 @@ class Agents:
 #             callbacks=[self.callback_function],
         )
         
-    
+#     def _reranker(self):
+#         return Agent(
+#             role='Reranker',
+#             goal="""Evaluate and reorder retrieved data based on query relevance,
+#             and assess the relevance of retrieved data to the original query.
+#             You need to carefully compare each piece of data to the query, assign a relevance score,
+#             """,
+#             backstory="""
+#             You are a former search engine optimizer with a keen eye for relevance. Your experience 
+#             in ranking information has given you unique insights into assessing and prioritizing 
+#             information based on its pertinence to a given query.
+#             """,
+#             verbose=const.CREWAI_AGENT_VERBOSE,
+#             llm=self.llm,
+#             memory=const.CREWAI_AGENT_MEMORY,
+#             allow_delegation=False,
+# #             callbacks=[self.callback_function],
+#         )

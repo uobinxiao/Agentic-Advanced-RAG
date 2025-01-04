@@ -22,7 +22,7 @@ elif EMBEDDING_MODEL_NAME == 'text-embedding-3-large':
 EMBEDDING_SPARSE_CORPUS = "corpus.json"
 
 # For Search Settings:
-TOP_K = 5
+TOP_K = 8
 ALPHA = 0.3
 USE_HYDE = False
 RERANK_TYPE = "weighted"
@@ -52,8 +52,8 @@ MODEL_NAME = "gpt-4o-mini"
 MODEL_TEMPERATURE = 0.1
 
 # Node Settings:
-NODE_BATCH_SIZE = 4
-NODE_RETRIEVAL_LEVEL = 0
+NODE_BATCH_SIZE = 5
+NODE_RETRIEVAL_LEVEL = 1
 
 # For Neo4j Settings:
 NEO4J_URI = os.getenv("NEO4J_URI")

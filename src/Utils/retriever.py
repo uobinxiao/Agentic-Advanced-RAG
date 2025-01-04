@@ -13,6 +13,7 @@ from Config.task_prompts import HYDE_PROMPT
 from typing import List, Dict, Any, Union, Optional, Set
 from Config.output_pydantic import HyDEOutput
 import json
+import hashlib
 load_dotenv()
 
 class Retriever:
@@ -180,14 +181,15 @@ class Retriever:
         Returns:
             unique_results: List[Dict[str, Any]] -> The deduplicated search results
         """
-        seen_contents = set()
+        seen_hashes = set()
         unique_results = []
         
         for query_results in batch_results:
             for result in query_results:
                 content = result['content']
-                if content not in seen_contents:
-                    seen_contents.add(content)
+                content_hash = hashlib.md5(content.encode()).hexdigest()
+                if content_hash not in seen_hashes:
+                    seen_hashes.add(content_hash)
                     unique_results.append(result)
         
         return unique_results 

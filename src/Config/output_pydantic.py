@@ -30,6 +30,18 @@ class UserQueryClassificationResult(BaseModel):
     relevant_keywords: List[str] = Field(..., description="List of relevant keywords")
 
 
+class GlobalMappingResult(BaseModel):
+    """
+    Represents the result of global mapping.
+
+    Attributes:
+        communities_summaries (List[str]): Summaries of relevant communities.
+        possible_answers (List[str]): List of possible answers.
+    """
+    communities_summaries: Optional[List[str]] = Field([], description="Summaries of relevant communities")
+    possible_answers: Optional[List[str]] = Field([], description="List of possible answers")
+
+
 class QueryProcessResult(BaseModel):
     """
     Represents the result of processing queries.
@@ -150,6 +162,7 @@ class RerankingResult(BaseModel):
     """
     relevance_scores: List[int]
     
+    
 class SortedRerankingResult(BaseModel):
     """
     Represents the sorted result of content reranking.
@@ -195,7 +208,7 @@ class ResponseAuditResult(BaseModel):
 
 
 # Pydantic Models For State
-class RerankingState(BaseModel):
+class MappingState(BaseModel):
     """
     Represents the state for reranking.
 
@@ -207,8 +220,8 @@ class RerankingState(BaseModel):
     """
     user_query: str
     sub_queries: Optional[List[str]]
-    batch_size: int
     batch_data: List[str]
+    
     
 class InformationOrganizationResult(BaseModel):
     """
@@ -226,6 +239,20 @@ def concate_or_reset(input_list: List[Tuple[str, int]], new_list: List[Tuple[str
     else:
         return input_list + new_list
 
+def concate_mapping_result(input_mapping_result: Dict[str, List], new_mapping_result: Dict[str, List]):
+    if new_mapping_result == const.RESET_LIST:
+        return None
+    if not input_mapping_result and not new_mapping_result:
+        return None
+    if input_mapping_result is None:
+        return new_mapping_result
+    if new_mapping_result is None:
+        return input_mapping_result
+    return {
+        "communities_summaries": input_mapping_result.get("communities_summaries", []) + new_mapping_result.get("communities_summaries", []), 
+        "possible_answers": input_mapping_result.get("possible_answers", []) + new_mapping_result.get("possible_answers", [])
+    }
+
 def concate_twoD_list(list_of_lists: List[List[str]], new_list: List[str]) -> List[List[str]]:
     list_of_lists.append(new_list)
     return list_of_lists
@@ -241,17 +268,23 @@ def append_vectordatabase_context(list_of_lists: List[List[Dict]], new_list: Lis
         return list_of_lists + [new_list]
     return list_of_lists + [[]]
 
+def append_graphdatabase_context(list_of_lists: List[List[str]], new_list: List[str]) -> List[List[str]]:
+    if new_list:
+        return list_of_lists + [new_list]
+    return list_of_lists + [[]]
+
 def append_generation_result(list_of_results: List[str], new_result: str) -> List[str]:
     if new_result:
         return list_of_results + [new_result]
     return list_of_results + [""]
 
+
 class UnitQueryState(BaseModel):
     """
     Attributes:
+        query_id (Optional[str]): The id of the query.
         user_query (Optional[str]): The user's input query.
         specific_collection (Optional[str]): Name of a specific collection, if any.
-        use_cohere_reranker (Optional[bool]): Whether to use cohere reranker.
         
         user_query_classification_result (Optional[UserQueryClassificationResult]): Result of user query classification.
         query_process_result (Optional[QueryProcessResult]): Result of query processing.
@@ -272,9 +305,9 @@ class UnitQueryState(BaseModel):
         generation_result (Optional[str]): The final generated result.
     """
     # Settings
+    query_id:                                   Optional[int]                                        = Field(None, description="The id of the query")
     user_query:                                 Optional[str]                                        = Field(None, description="The user's input query")
     specific_collection:                        Optional[str]                                        = Field(None, description="Name of a specific collection, if any")
-    use_cohere_reranker:                        Optional[bool]                                       = Field(False, description="Whether to use cohere reranker")
     # pydantic models        
     user_query_classification_result:           Optional[UserQueryClassificationResult]              = Field(None, description="Result of user query classification")
     query_process_result:                       Optional[QueryProcessResult]                         = Field(None, description="Result of query processing")
@@ -286,10 +319,12 @@ class UnitQueryState(BaseModel):
     response_audit_result:                      Optional[ResponseAuditResult]                        = Field(None, description="Result of response auditing")
     # Retrieval
     retrieval_data:                             Optional[List[str]]                                  = Field(None, description="Retrieved data")
+    possible_answers:                           Optional[List[str]]                                  = Field(None, description="Possible answers")
     # Reranking
-    global_mapping_result:                      Annotated[List[Tuple[str, int]], concate_or_reset]   = Field([],   description="Result of global reranking")
-    local_mapping_result:                       Annotated[List[Tuple[str, int]], concate_or_reset]   = Field([],   description="Result of local reranking")
-    detail_mapping_result:                      Annotated[List[Tuple[str, int]], concate_or_reset]   = Field([],   description="Result of detail reranking")
+    local_reranking_result:                     Annotated[List[Tuple[str, int]], concate_or_reset]   = Field([],   description="Result of local reranking")
+    detail_reranking_result:                    Annotated[List[Tuple[str, int]], concate_or_reset]   = Field([],   description="Result of detail reranking")
+    # Global Mapping
+    global_mapping_result:                      Annotated[Dict[str, List], concate_mapping_result]   = Field(None, description="Result of global reranking")
     # Output
     generation_result:                          Optional[str]                                        = Field(None, description="The final generated result")
     repeat_times:                               Optional[int]                                        = Field(0,    description="Number of repetitions", ge=0)
@@ -307,21 +342,50 @@ class QueriesState(BaseModel):
         all_generation_results (Annotated[List[str], append_generation_result]): List of all results.
         all_information_contexts (Annotated[List[List[str]], append_information_context]): List of all contexts.
         all_vectordatabase_contexts (Annotated[List[List[Dict]], append_vectordatabase_context]): List of all contexts for multihop queries.
+        all_graphdatabase_contexts (Annotated[List[List[Dict]], append_graphdatabase_context]): List of all contexts for multihop queries.
     """
     # Batch Dataset Processing       
     dataset_queries:                            Optional[List[str]]                                        = Field([],   description="List of queries from dataset")
     user_query:                                 Optional[str]                                              = Field(None, description="The user's input query")
     specific_collection:                        Optional[str]                                              = Field(None, description="Name of a specific collection, if any")
-    use_cohere_reranker:                        Optional[bool]                                             = Field(False, description="Whether to use cohere reranker")
     
     generation_result:                          Optional[str]                                              = Field(None, description="The final generated result")
     information_organization_result:            Optional[InformationOrganizationResult]                    = Field(None, description="Result of information organization")
     detailed_search_result:                     Optional[DetailedSearchResult]                             = Field(None, description="Result of detailed search")
+    possible_answers:                           Optional[List[str]]                                        = Field(None, description="List of possible answers")
     
     all_generation_results:                     Annotated[List[str],        append_generation_result]      = Field([],   description="List of all results")
     all_information_contexts:                   Annotated[List[List[str]],  append_information_context]    = Field([[]], description="List of all contexts")
     all_vectordatabase_contexts:                Annotated[List[List[Dict]], append_vectordatabase_context] = Field([[]], description="List of all contexts for multihop queries")
+    all_graphdatabase_contexts:                 Annotated[List[List[str]],  append_graphdatabase_context]  = Field([[]], description="List of all contexts for multihop queries")
+    all_possible_answers:                       Annotated[List[List[str]],  append_information_context]    = Field([[]], description="List of all possible answers")
     
+
+def retrieval_data_concate(input_list: List[List[Dict]], new_list: List[str]) -> List[List[Dict]]:
+    if new_list:
+        new_list = [{"text": i} for i in new_list]
+        return input_list + [new_list]
+    return input_list + [[{"text": ""}]]
+
+def information_organization_result_concate(input_list: List[List[str]], new_information_organization_result: InformationOrganizationResult) -> List[List[str]]:
+    if new_information_organization_result:
+        return input_list + [new_information_organization_result.organized_information]
+    return input_list + [[]]
+
+class QueriesParallelState(BaseModel):
+    """
+    Attributes:
+        batches (List[Dict[str, Any]]): List of batches.
+    """
+    dataset_queries:                            List[str]                                                  = Field([],   description="List of queries from dataset")
+    dataset_specific_collection:                Optional[str]                                              = Field(None, description="Name of a specific collection, if any")
+    batches:                                    Optional[List[Dict[str, Any]]]
+    
+    query_id:                                   Annotated[List[int], lambda x, y: x + [y]]                                              = Field(None, description="The id of the query")
+    information_organization_result:            Annotated[List[List[str]], information_organization_result_concate]                   = Field([[]], description="Result of information organization")
+    retrieval_data:                             Annotated[List[List[Dict]], retrieval_data_concate]                                   = Field([[]], description="Retrieved data")
+    generation_result:                          Annotated[List[str], lambda x, y: x + [y]]                                            = Field([], description="The final generated result")
+
     
 class SingleState(BaseModel):
     """
