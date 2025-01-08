@@ -1,11 +1,5 @@
 import pandas as pd
 from Config import constants as const
-import numpy as np
-import umap.umap_ as umap
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.mixture import GaussianMixture
-from lshashpy3 import LSHash
-from collections import Counter
 from typing import List, Dict, Any
 from pymilvus import WeightedRanker, RRFRanker, connections, FieldSchema, CollectionSchema, DataType, Collection, MilvusClient, AnnSearchRequest
 import warnings
@@ -227,6 +221,13 @@ class VectorDatabase:
     
     def get_all_entities(self, 
                          collection_name: str):
+        """
+        Retrieves all vectors from the specified collection and returns them as a pandas DataFrame + write into .parquet.
+        Parameters:
+            collection_name (str): The name of the collection to retrieve entities from.
+        Returns:
+            pd.DataFrame: A DataFrame containing all entities from the specified collection.
+        """
         
         collection = self.load_collection(collection_name)
         iterator = collection.query_iterator(batch_size=16384,
@@ -250,10 +251,11 @@ class VectorDatabase:
                 }
                 all_data.append(record)
         df = pd.DataFrame(all_data)
+        df = df.sort_values(by='id').reset_index(drop=True)
         
-        file_name = f'../tests/{collection_name}_all_entities.parquet'
+        file_name = f'.parquet/{collection_name}_all_entities.parquet'
         df.to_parquet(file_name, index=False)
-    
+        
         return df
     
     def Kmeans_clustering(self, 
