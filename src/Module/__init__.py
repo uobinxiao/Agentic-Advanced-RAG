@@ -1,4 +1,4 @@
-from .nodes import NodesMultiAgentRAG, NodesModularRAG, NodesSingleAgentRAG
-from .graph import WorkFlowModularRAG, WorkFlowModularHybridRAG, WorkFlowMultiAgentRAG, WorkFlowSingleAgentRAG
+from .nodes import NodesMultiAgentRAG, NodesModularRAG, NodesSingleAgentRAG, NodesDataset, NodesParallelDataset
+from .graph import DatasetRecord, HybridAgenticRAG, ParallelDatasetRecord, WorkFlowMultiAgentRAG, WorkFlowSingleAgentRAG
 
-__all__ = ["NodesMultiAgentRAG", "NodesModularRAG", "NodesSingleAgentRAG", "WorkFlowModularRAG", "WorkFlowModularHybridRAG", "WorkFlowMultiAgentRAG", "WorkFlowSingleAgentRAG"]
+__all__ = ["NodesMultiAgentRAG", "NodesModularRAG", "NodesSingleAgentRAG", "DatasetRecord", "HybridAgenticRAG", "WorkFlowMultiAgentRAG", "WorkFlowSingleAgentRAG", "NodesDataset", "ParallelDatasetRecord"]

@@ -1,19 +1,33 @@
 import pandas as pd
 from Config import constants as const
 from typing import List, Dict, Any
-from pymilvus import WeightedRanker, RRFRanker, connections, FieldSchema, CollectionSchema, DataType, Collection, MilvusClient
+from pymilvus import WeightedRanker, RRFRanker, connections, FieldSchema, CollectionSchema, DataType, Collection, MilvusClient, AnnSearchRequest
+import warnings
 
 class VectorDatabase:
+    _instance = None
+
+    def __new__(cls, 
+                host: str = const.MILVUS_HOST, 
+                port: str = const.MILVUS_PORT, 
+                database_name: str = const.MILVUS_DATABASE_NAME):
+        if cls._instance is None:
+            cls._instance = super(VectorDatabase, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self, 
                 host: str = const.MILVUS_HOST, 
                 port: str = const.MILVUS_PORT, 
-                database_name: str = const.MILVUS_DATABASE_NAME
-                ):
-        
+                database_name: str = const.MILVUS_DATABASE_NAME):
+        if self._initialized:
+            return
         self.host = host
         self.port = port
         self.database_name = database_name
         self.client = self.connect()
+        self._initialized = True
+        self.loaded_collections = set()  
         print("VectorDatabase initialized.")
         
     def connect(self):
@@ -40,19 +54,26 @@ class VectorDatabase:
     def create_collection(self, 
                         collection_name: str, 
                         dense_dim: int = const.EMBEDDING_DENSE_DIM,
+                        is_document_mapping: bool = const.IS_DOCUMENT_MAPPING
                         ):
 
         if self.client.has_collection(collection_name):
-            raise ValueError(f"Collection {collection_name} already exists.")
+            warnings.warn(f"Collection {collection_name} already exists, skipping creation.")
+            return
 
         fields = [
             FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
             FieldSchema(name="dense_vector", dtype=DataType.FLOAT_VECTOR, dim=dense_dim),
             FieldSchema(name="sparse_vector", dtype=DataType.SPARSE_FLOAT_VECTOR),
             FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
-            FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=512)
+            FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=1024)
         ]
         
+        print(f"Creating collection {collection_name} with fields: {fields}")
+        
+        if is_document_mapping:
+            fields.append(FieldSchema(name="doc_id", dtype=DataType.STRING, max_length=512))
+                                      
         schema = CollectionSchema(
             fields, 
             description=f"Hybrid collection for dense and sparse vector embeddings of {collection_name}.",
@@ -65,7 +86,7 @@ class VectorDatabase:
             using=self.database_name
         )
         
-        print(f"Successfully created collection {collection_name} with dense dimension {dense_dim} and sparse embeddings.")
+        print(f"Successfully created collection {collection_name} with dense embeddings (dense dim: {dense_dim}) and sparse embeddings.")
 
         if const.IS_GPU_INDEX:
             dense_index_params = {
@@ -105,12 +126,19 @@ class VectorDatabase:
         pass
 
     def load_collection(self, collection_name: str):
-        self.client.load_collection(collection_name=collection_name)
+        collection = self.get_collection(collection_name)
+        if collection_name in self.loaded_collections:
+            print(f"Collection {collection_name} is already loaded.")
+            return collection
+        collection.load()
+        self.loaded_collections.add(collection_name)
         print(f"Collection {collection_name} loaded into memory.")
+        return collection
 
     def release_collection(self, collection_name: str):
         collection = self.get_collection(collection_name)
         collection.release()
+        self.loaded_collections.discard(collection_name)  # 從已加載集合中移除
         print(f"Collection {collection_name} released from memory.")
 
     def drop_collection(self, collection_name: str):
@@ -145,11 +173,24 @@ class VectorDatabase:
                     search_requests, 
                     rerank_type: str = const.RERANK_TYPE,
                     weights: List[float] = const.RERANK_WEIGHTS,    
-                    top_k: int = const.TOP_K
+                    top_k: int = const.TOP_K,
                     ) -> List[Dict[str, Any]]:
-
-        collection = self.get_collection(collection_name)
-        collection.load()
+        """
+        This function is used to perform a hybrid search on the vector database.
+        It uses the WeightedRanker or RRFRanker to rerank the search results.
+        
+        Args:
+            collection_name: str -> The name of the collection
+            search_requests: List[Dict[str, Any]] -> The search requests
+            rerank_type: str -> The type of reranking to use
+            weights: List[float] -> The weights to use for the reranking
+            top_k: int -> The number of the top results
+        Returns:
+            List[Dict[str, Any]] -> The search results
+                - content: str -> The content of the document
+                - metadata: Dict[str, Any] -> The metadata of the document
+        """
+        collection = self.load_collection(collection_name)
         rerank = WeightedRanker(*weights) if rerank_type == "weighted" else RRFRanker()
         milvus_results = collection.hybrid_search(
             search_requests, 
@@ -158,8 +199,6 @@ class VectorDatabase:
             output_fields=["content", "metadata"]
         )
         contents = [self.get_content_from_hits(hits) for hits in milvus_results]
-        collection.release()
-
         return contents
     
     def search(self, 
@@ -168,8 +207,7 @@ class VectorDatabase:
                top_k: int = const.TOP_K
                ) -> List[Dict[str, Any]]:
         
-        collection = self.get_collection(collection_name)
-        collection.load()  
+        collection = self.load_collection(collection_name)
         search_params = {
             "data": search_request.data,
             "anns_field": search_request.anns_field,
@@ -179,7 +217,6 @@ class VectorDatabase:
         }
         milvus_results = collection.search(**search_params)        
         contents = [self.get_content_from_hits(hits) for hits in milvus_results]
-        collection.release()
         return contents
     
     def get_all_entities(self, 
@@ -192,10 +229,8 @@ class VectorDatabase:
             pd.DataFrame: A DataFrame containing all entities from the specified collection.
         """
         
-        collection = self.get_collection(collection_name)
-        collection.load()
-        
-        iterator = collection.query_iterator(batch_size=10000,
+        collection = self.load_collection(collection_name)
+        iterator = collection.query_iterator(batch_size=16384,
                                              expr="id > 0",
                                              output_fields=["id","dense_vector","content","metadata"],)  
 
@@ -222,6 +257,222 @@ class VectorDatabase:
         df.to_parquet(file_name, index=False)
         
         return df
+    
+    def Kmeans_clustering(self, 
+                          collection_name: str,
+                          num_k,
+                          batch_size,
+                          limit):
+            
+        file_path = f'../tests/{collection_name}_all_entities.parquet'
+        #read json get vector
+        vectors = []
+           
+        df = pd.read_parquet(file_path)
+        vector = df['dense_vector']
+        for v in vector:
+            v = v.tolist()
+            vectors.append(v)
+        vectors_array = np.array(vectors)
+        
+        #do kmeans
+        kmeans = MiniBatchKMeans(n_clusters=num_k, random_state=0, batch_size=batch_size)
+        kmeans.fit(vectors_array)
+        cluster_centers = kmeans.cluster_centers_
+        cluster_centers = cluster_centers.tolist()
+        
+        result = []
+        for center in cluster_centers:
+            #change format to search_format
+            data = []
+            center = np.array(center)
+            data.append(center)
+            
+            #search center
+            search_req = {
+                "data": data,
+                "anns_field": "dense_vector",
+                "param": {"metric_type": "COSINE", "params": {}},
+                "limit": limit
+            }
+            search_req = AnnSearchRequest(**search_req)
+        
+            res = self.search(
+                collection_name=collection_name,
+                search_request=search_req,
+                top_k=limit
+            )
+            result.append(res)
+            print(res)
+    
+        return result 
+    
+    def LSH_clustering(self,
+                       num_layers, 
+                       hash_size, 
+                       table_num, 
+                       sampling_ratio,
+                       collection_name: str,
+                       search_limit):
+        
+        collection = self.load_collection(collection_name)
+        file_path = f'../tests/{collection_name}_all_entities.parquet'
+        vectors = []
+        df = pd.read_parquet(file_path)
+        vector = df['dense_vector']
+        for v in vector:
+            v = v.tolist()
+            vectors.append(v)
+        vectors_array = np.array(vectors)
+        
+        # do LSH
+        def lsh_layer(vectors, current_layer):
+
+            if current_layer > num_layers:
+                return [vectors]  # break
+
+            dim = len(vectors[0])
+            lsh = LSHash(hash_size=hash_size, input_dim=dim, num_hashtables=table_num)
+            
+            # store
+            for ix, v in enumerate(vectors):
+                lsh.index(v, extra_data=str(ix))
+            
+            next_buckets = []
+            for table in lsh.hash_tables:
+                for hash_value, bucket in table.storage.items():
+                    bucket_vectors = [item[0] for item in bucket]
+                    if len(bucket_vectors) > 0:
+                        next_buckets.extend(lsh_layer(bucket_vectors, current_layer + 1))
+            return next_buckets
+
+        # start LSH
+        final_buckets = lsh_layer(vectors_array, 1)
+        
+        # last layer
+        representative_bucket_vectors = []
+        representative_vectors = []
+        for bucket in final_buckets:
+            num_vectors_to_sample = max(1, int(len(bucket) * sampling_ratio))
+            indices_to_sample = np.random.choice(len(bucket), num_vectors_to_sample, replace=False)
+            sampled_vectors = [bucket[i] for i in indices_to_sample]
+            representative_bucket_vectors.append(sampled_vectors)
+            representative_vectors.extend(sampled_vectors)
+        print(f"\n The vectors number by LSH-{num_layers} clustering : {len(representative_vectors)}")
+        print(f" The buckets number by LSH-{num_layers} clustering : {len(representative_bucket_vectors)}")
+            
+        # search result
+        result = []
+        with open('search_results.txt', 'w') as file:
+            for bucket in representative_bucket_vectors:
+                meta_data = []
+                for v in bucket:
+                    data = []
+                    v = np.array(v)
+                    data.append(v)
+                    
+                    #search center 
+                    search_req = {
+                        "data": data,
+                        "anns_field": "dense_vector",
+                        "param": {"metric_type": "COSINE","params": {"ef": 100}},
+                        "limit": search_limit
+                    }
+                    search_req = AnnSearchRequest(**search_req)
+                    res = self.search(
+                        collection_name=collection_name,
+                        search_request=search_req,
+                        top_k=search_limit
+                    )
+                    result.extend(res)
+                    meta_data.append(res[0][0]['metadata'])
+    
+                    file.write(f"{res[0][0]['content']}\n [{res[0][0]['metadata']}]\n")
+                file.write("\n\n\n\n==================================================================\n\n\n\n")
+                
+                # #count meta_data num
+                # meta_data_count = Counter(meta_data)
+                # for word, count in meta_data_count.items():
+                #     print(f" {word}: {count}")
+                # print("\n\n")
+                  
+        return result, representative_vectors, representative_bucket_vectors
+    
+    def GMM_clustering(self,
+                       umap_componemts, 
+                       gmm_components, 
+                       sampling_ratio,
+                       collection_name: str,
+                       search_limit):
+        
+        collection = self.load_collection(collection_name)
+        file_path = f'../tests/{collection_name}_all_entities.parquet'
+        vectors = []
+        df = pd.read_parquet(file_path)
+        vector = df['dense_vector']
+        for v in vector:
+            v = v.tolist()
+            vectors.append(v)
+        vectors_array = np.array(vectors)
+        
+        # umap
+        reducer = umap.UMAP(metric='cosine',n_components=umap_componemts)
+        X_umap = reducer.fit_transform(vectors_array)
+        print(f" Umap shape: {X_umap.shape}")  
+        
+        # GMM
+        gmm = GaussianMixture(n_components=gmm_components)
+        labels = gmm.fit_predict(X_umap)
+        
+        # sample
+        representative_bucket_vectors = []
+        representative_vectors = []
+        for cluster in np.unique(labels):
+            cluster_indices = np.where(labels == cluster)[0]
+            sample_size = int(sampling_ratio * len(cluster_indices))
+            sample_indices = np.random.choice(cluster_indices, sample_size, replace=False)
+            representative_bucket_vectors.append(vectors_array[sample_indices])
+            representative_vectors.extend(vectors_array[sample_indices])
+            print(f"Cluster {cluster}: {len(sample_indices)}")
+            
+        # search result
+        result = []
+        with open('search_results.txt', 'w') as file:
+            for bucket in representative_bucket_vectors:
+                meta_data = []
+                for v in bucket:
+                    data = []
+                    v = np.array(v)
+                    data.append(v)
+                    
+                    #search center 
+                    search_req = {
+                        "data": data,
+                        "anns_field": "dense_vector",
+                        "param": {"metric_type": "COSINE","params": {"ef": 100}},
+                        "limit": search_limit
+                    }
+                    search_req = AnnSearchRequest(**search_req)
+                    res = self.search(
+                        collection_name=collection_name,
+                        search_request=search_req,
+                        top_k=search_limit
+                    )
+                    
+                    result.extend(res)
+                    meta_data.append(res[0][0]['metadata'])
+    
+                    file.write(f"{res[0][0]['content']}\n [{res[0][0]['metadata']}]\n")
+                file.write("\n\n\n\n==================================================================\n\n\n\n")
+                
+                # #count meta_data num
+                # meta_data_count = Counter(meta_data)
+                # for word, count in meta_data_count.items():
+                #     print(f" {word}: {count}")
+                # print("\n\n")
+                  
+        return result, representative_vectors, representative_bucket_vectors
+
 
 if __name__ == "__main__":
     vectordatabase = VectorDatabase()
@@ -230,3 +481,4 @@ if __name__ == "__main__":
     print(vectordatabase.list_collections())
     vectordatabase.drop_collection("test_collection123")
     vectordatabase.disconnect()
+

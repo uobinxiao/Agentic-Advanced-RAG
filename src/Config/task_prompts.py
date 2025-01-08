@@ -1,39 +1,73 @@
 # prompts.py
 from textwrap import dedent
 
+# HyDE Prompt
+HYDE_PROMPT = dedent("""
+Your task is to generate 3 - 5 hypothetical answer that could answer the user query.
+User Query: "{query}"
+""")
+
 
 # User Query Classification Task
 USER_QUERY_CLASSIFICATION_PROMPT = dedent("""
-Analyze the following user query and determine if it requires information retrieval to be answered accurately:
+Analyze the following user query and determine if it requires information retrieval to be answered accurately, while also evaluating its global or local scope:
 
 User Query: "{user_query}"
 
-Your task is to classify this query as either requiring retrieval or not. Consider the following guidelines:
+Your task is to:
+1. Classify this query as either requiring retrieval or not (Boolean value)
+2. Evaluate the query's domain range score (Integer value from 0 to 100)
+3. Provide a brief justification for your decision (String value)
+4. Pick up the most relevant keywords or entities from the user query (List[str])
+
+Consider the following guidelines:
 
 1. Queries that typically require retrieval:
-   - Specific factual information (e.g., historical dates, statistics, current events)
+   - Specific factual information (e.g., historical dates, statistics, temporal events)
    - Detailed explanations of complex topics
    - Information about recent or rapidly changing subjects
-
+   - Query on a specific document, article, object, dataset, person, organization, event, character, etc.
+   - Need to retrieve external data to answer the query
+   
 2. Queries that typically don't require retrieval:
    - General knowledge questions
-   - Simple calculations or conversions
+   - Simple calculations
    - Language translations
    - Requests for creative content generation
-   - Basic concept explanations
 
-Provide your classification as a boolean value:
-- True if the query requires retrieval
-- False if the query can be answered without retrieval
-
-Justify your decision briefly.
+3. Domain Range Score (0-100):
+    0-20 points: Extremely Specific
+        Definition: Very precise questions involving a single operation or concept.
+        Example: "How do I adjust the focus on a microscope to view a cell sample?", "In what time, M.C. Escher was born?"
+        
+    21-40 points: Technical Expertise
+        Definition: Questions requiring specific domain knowledge or skills, usually with clear solutions.
+        Example: "How do I change the oil filter in a car?"
+        
+    41-60 points: Concrete Issues
+        Definition: Questions about specific problems or situations, potentially involving multiple steps or considerations.
+        Example: "How do I grow and care for tomato plants at home?"
+        
+    61-80 points: Broad Local
+        Definition: Questions about details from larger local areas, requiring consideration of multiple subsystems or factors.
+        Example: "How can we improve the transportation system of a city?", "Whose stock price is higher, Apple or Samsung in 2021?"
+        
+    81-100 points: Global
+        Definition: Questions about wide-ranging systemic issues, requiring consideration of multiple domains and long-term impacts. To summarize, or to introduce something with complete ingestion.
+        Example: "How can we solve the global climate change crisis?", "What is the main topic of this dataset?", "What is the main idea of this book?", "What is this movie about?"
+        
+4. Relevant Keywords:
+    - Pick up the most relevant keywords or entities from the user query.
+    - Example: "What is the capital of the United States?" -> ["capital", "United States"]
 """)
 
 USER_QUERY_CLASSIFICATION_EXPECTED_OUTPUT = dedent("""
 A pydantic object with the following structure:
 class UserQueryClassificationResult(BaseModel):
     needs_retrieval: bool
+    domain_range_score: int
     justification: str
+    relevant_keywords: List[str]
 """)
 
 # Plan Coordinator Task
@@ -64,7 +98,7 @@ c. Decompose the transformed query into simpler sub-queries if necessary.
 
 QUERY_PROCESS_EXPECTED_OUTPUT = dedent("""
 Your output should be a Pydantic object of type QueriesProcessResult with the following structure:
-class QueriesProcessResult(BaseModel):
+class QueryProcessResult(BaseModel):
     original_query: str
     transformed_queries: Optional[List[str]]
     decomposed_queries: Optional[List[str]]
@@ -80,7 +114,7 @@ Using the query decomposition and transformation results from the context, perfo
 
 Expected context: You will receive a QueriesProcessResult object with the following structure:
 
-class QueriesProcessResult(BaseModel):
+class QueryProcessResult(BaseModel):
     original_query: str
     transformed_queries: Optional[List[str]]
     decomposed_queries: Optional[List[str]]
@@ -103,7 +137,7 @@ Using the query decomposition and transformation results from the context, perfo
 
 Expected context: You will receive a Queries object with the following structure:
 
-class QueriesProcessResult(BaseModel):
+class QueryProcessResult(BaseModel):
     original_query: str
     transformed_queries: Optional[List[str]]
     decomposed_queries: Optional[List[str]]
@@ -121,7 +155,7 @@ Compile a QueriesIdentification only for queries that need retrieval.
 """)                                                            
 
 SUB_QUERIES_CLASSIFICATION_EXPECTED_OUTPUT = dedent("""
-Your output should be a pydantc object with the following structure:
+Your output should be a pydantic object with the following structure:
 class SubQueriesClassificationResult(BaseModel):
     queries: List[str]
     collection_name: List[Optional[str]]
@@ -152,87 +186,161 @@ RETRIEVAL_EXPECTED_OUTPUT = dedent("""
 A RetrievalResult pydantic object containing consolidated metadata and content lists.
 """)
 
-# Topic Reranking Task
-TOPIC_RERANKING_PROMPT = dedent("""
-Your task is to evaluate each community's relevance to the user's query.
+GLOBAL_MAPPING_PROMPT = dedent("""
+Your task is to analyze all provided community information and generate two types of outputs related to the user's query.
 User Query: "{user_query}"
+Sub-queries: "{sub_queries}"
 
 Your specific responsibilities are:
-1. Examine each community from the batch.
-2. Compare each community to the user's query.
-3. Assign a relevance score to each community based on how well it matches the user's query from 0 to 100.
-   - Higher scores indicate better relevance.
-   - If the community is totally irrelevant, assign a score of 0.
-4. Create a list of these relevance scores, don't include any other information.
-5. CRITICAL: Ensure the number of scores in your output list EXACTLY matches the number of communities :{batch_size} in the input.
 
-You will receive a batch of {batch_size} communities in json format. 
-----------------batch_communities----------------
-{batch_communities}
+1. Analyze all community information:
+   ----------------batch_communities----------------
+   {batch_data}
+
+2. Generate two lists:
+   a) Key Points List:
+      - Create a list of unique and relevant key points derived from all community information.
+      - Each key point should either be directly related to the user query or capable of answering it.
+      - If all community information does not provide any information related to the user query or sub-queries, return an empty list.
+      - Aim for comprehensive coverage while avoiding redundancy.
+      - Do not include any other information not related to the user query or sub-queries.
+      - Do not tell me that the community information does not provide any information related to the user query or sub-queries.
+
+   b) Imagined Answers List:
+      - Based on the community information, imagine possible answers to the user query.
+      - These answers should be plausible extensions or interpretations of the available information.
+      - Ensure diversity in the imagined answers to cover various possibilities.
+      - You don't have to create too many possible answers, 2-3 is enough, focus on the key points.
+      - If you don't have enough information to answer the query, just randomly aggregate information from the retrieved data.
 
 Important notes:
-- The order of your relevance scores must match the exact order of the communities in the input.
+- Focus on quality and relevance rather than quantity for both lists.
+- Ensure that the key points and imagined answers are distinct from each other.
+- Aim for clarity and conciseness in both key points and imagined answers.
+- The key points and imagined answers should be related to the user query.
+Your output should be a pydantic object with the following structure, do not include datatype like dict in your output:
+class GlobalMappingResult(BaseModel):
+    communities_summaries: List[str]
+    possible_answers: List[str]
+""")
+
+GLOBAL_MAPPING_EXPECTED_OUTPUT = dedent("""
+class GlobalMappingResult(BaseModel):
+    communities_summaries: List[str]
+    possible_answers: List[str]
+""")
+
+LOCAL_TOPIC_RERANKING_PROMPT = dedent("""
+Your task is to evaluate each data's relevance to the user's query or sub-queries relevant to the user's query.
+User Query: "{user_query}"
+And the sub-queries: "{sub_queries}"
+
+Your specific responsibilities are:
+1. Compare each data to the user's query and sub-queries.
+2. Assign a relevance score to each data based on how well it matches the user's query and sub-queries from 0 to 100.
+   - Higher scores indicate better relevance.
+3. Create a list of these relevance scores, don't include any other information.
+4. CRITICAL: Ensure the number of scores in your output list EXACTLY matches the number of data :{batch_size} in the input.
+
+You will receive a list of {batch_size} data. 
+----------------batch_data----------------
+{batch_data}
+
+Important notes:
+- The order of your relevance scores must match the exact order of the data in the input.
 - Maintain consistency in your scoring method across all communities.
 - Do not include any explanations or additional text outside the Pydantic object.
-- If you find that your score list does not match the number of communities : {batch_size}, you MUST redo the entire process until it does.
-
-Your output must be a Pydantic object of the TopicRerankingResult class with the following structure:
-class TopicRerankingResult(BaseModel):
-    relevant_scores: List[int]
+- If you find that your score list does not match the number of data : {batch_size}, you MUST redo the entire process until it does.
 
 FINAL CHECK: Before submitting your response, be sure that the scores list contains exactly {batch_size} relevance scores.
 """)
 
-TOPIC_RERANKING_EXPECTED_OUTPUT = dedent("""
+LOCAL_TOPIC_RERANKING_EXPECTED_OUTPUT = dedent("""
 class TopicRerankingResult(BaseModel):
-    relevant_scores: List[int]
+    relevant_scores: List[int]                                                                     
 """)
 
 # Topic Searching Task
-TOPIC_SEARCHING_PROMPT = dedent("""
-You have received multiple pieces of community information related to a user query by descending relevance scores.
+GLOBAL_TOPIC_SEARCHING_PROMPT = dedent("""
+You have received multiple pieces of community information related to a user query or sub-queries decomposed from the user query by descending relevance scores.
 
-----------------Uesr Query----------------
+----------------User Query----------------
 {user_query}
+
+----------------Sub-queries----------------
+{sub_queries}
+
+----------------Community Information----------------
+{data}
 
 Your task is to analyze this information and help prepare for a vector database search to answer the user's query.
 
 Follow these steps:
-0. If no community information is provided, return 2 empty list.
-1. Carefully read and analyze all provided community information.
-2. Summarize the key points from this information and from the user query into concise community summaries.
-3. Based on these summaries, imagine what relevant document chunks might exist in a vector database or what might the response contain.
-4. Generate possible document chunks that could help answer the user's query.
-
-Your output should be a Pydantic model instance of TopicSearchingResult, containing:
-1. communities_summaries: A list of strings summarizing key points from the community information.
-2. possible_answers: A list of strings representing imagined document chunks that might exist in the vector database.
-
-Guidelines:
-- Each community summary should capture a distinct key point or theme from the provided information.
-- Imagined document chunks should be diverse and cover various aspects related to the user's query.
-- These chunks should be formulated to aid in semantic search within a vector database.
-- Each chunk should be a short paragraph or a few sentences, similar to what might be found in a real document.
-
-Remember, the goal is to create summaries and imagine document chunks that will help in retrieving relevant information from a vector database to answer the user's query.
-
-----------------Community Information----------------
-{community_information}
+1. If no community information is provided, return 2 empty lists.
+2. Carefully read and analyze all provided community information.
+3. Summarize the key points from this information and from the user query into concise community summaries.
+4. For generating hypothetical possible answers:
+    - First, construct 3-5 sentences that answer the user's query.
+    - For example:
+        "How does Alex keep Shine away from his castle?" -> "Alex uses a xxx to keep Shine away from his castle." or "Alex took advantage of the xxx to prevent Shine from entering his castle."
+        "Where does the 2nd king live?" -> "The 2nd king lives in the xxx." or "At the xxx, the king had a beautiful life."
+    - Second, use the retrieved data or summaries to replace the xxx in the sentences.
+    - If all the retrieved data is not helpful or you don't have enough information to answer the query, just randomly choose one object mentioned in the retrieved data to replace the xxx.
+    - the data picked should be the same type as the xxx in the sentences.(If xxx is probably a location, choose a location; if xxx is probably an object, choose an object; if xxx is probably an action, choose an action)
+    - Don't say you don't have enough information to answer the query, just make up a plausible answer.
+Return the community summaries and possible answers in a pydantic object:
+communities_summaries: List[str]
+possible_answers: List[str]
 """)
 
-TOPIC_SEARCHING_EXPECTED_OUTPUT = dedent("""
-TopicSearchingResult(
-    communities_summaries=[
-        "Key point 1 summarized from community information",
-        "Key point 2 summarized from community information",
-        "Key point 3 summarized from community information"
-    ],
-    possible_answers=[
-        "An imagined document chunk that might exist in the vector database, relevant to the user's query and community summaries.",
-        "Another potential document chunk covering a different aspect of the topic, formulated to aid in semantic search.",
-        "A third imagined document chunk providing additional context or information related to the user's query."
-    ]
-)
+GLOBAL_TOPIC_SEARCHING_EXPECTED_OUTPUT = dedent("""
+class GlobalTopicSearchingAndHyDEResult(BaseModel):
+    communities_summaries: List[str]
+    possible_answers: List[str]
+""")
+
+
+LOCAL_TOPIC_SEARCHING_PROMPT = dedent("""
+You have received multiple pieces of data related to a user query or sub-queries decomposed from the user query by descending relevance scores.
+
+----------------User Query----------------
+{user_query}
+
+----------------Sub-queries----------------
+{sub_queries}
+
+----------------Data----------------
+{data}   
+Your task is to analyze this batch of data and help prepare for a vector database search to answer the user's query.
+
+The batch of data may include:
+- Communities extracted from the article
+- Chunks extracted from the article
+- Entities extracted from the article
+- Relations extracted from the articles
+
+Follow these steps:
+1. If no data is provided, return 2 empty list.
+2. Carefully read and analyze all provided data.
+3. Summarize the key points from this information and from the user query into concise information summaries.
+4. For generating hypothetical possible answers:
+    - First, construct 3-5 sentences that answer the user's query.
+    - For example:
+        "How does Alex keep Shine away from his castle?" -> "Alex uses a xxx to keep Shine away from his castle." or "Alex took advantage of the xxx to prevent Shine from entering his castle."
+        "Where does the 2nd king live?" -> "The 2nd king lives in the xxx." or "At the xxx, the king had a beautiful life."
+    - Second, use the retrieved data or summaries to replace the xxx in the sentences.
+    - If all the retrieved data is not helpful or you don't have enough information to answer the query, just randomly choose one object mentioned in the retrieved data to replace the xxx.
+    - Don't say you don't have enough information to answer the query, just make up a plausible answer.
+    - the data picked should be the same type as the xxx in the sentences.(If xxx is probably a location, choose a location; if xxx is probably an object, choose an object; if xxx is probably an action, choose an action)
+Return the community summaries and possible answers in a pydantic object:
+information_summaries: List[str]
+possible_answers: List[str]
+""")
+
+LOCAL_TOPIC_SEARCHING_EXPECTED_OUTPUT = dedent("""
+class LocalTopicSearchingAndHyDEResult(BaseModel):
+    information_summaries: List[str]
+    possible_answers: List[str]
 """)
 
 # Retrieve Detail Data from Topic Task
@@ -241,9 +349,9 @@ specific_collection = {specific_collection}
 
 You will be given a list of TopicSearchingEntity objects. Each object has the following structure:
 class TopicSearchingEntity:
-description: str
-score: int
-example_sentences: List[str]
+    description: str
+    score: int
+    example_sentences: List[str]
 Select the topics or example sentences with high scores from the TopicSearchingEntity objects. Prioritize those with higher scores as they are likely to be more relevant.
 For each selected high-scoring topic or example sentence:
 a. Use it as a query for the _retrieve tool.
@@ -272,102 +380,64 @@ RETRIEVAL_DETAIL_DATA_FROM_TOPIC_EXPECTED_OUTPUT = dedent("""
 A RetrievalResult pydantic object containing consolidated metadata and content lists.
 """)
 
-# Reranking Detail Data Task
-RERANKING_PROMPT = dedent("""
-Your task is to evaluate each retrieved data item's relevance to the user's query.
-User Query: "{user_query}"
-
-Your specific responsibilities are:
-1. Examine each data item from the batch.
-2. Compare each data item to the user's query.
-3. Assign a relevance score to each data item based on how well it matches the user's query from 0 to 100.
-   - Higher scores indicate better relevance.
-4. Create a list of these relevance scores, don't include any other information.
-5. CRITICAL: Ensure the number of scores in your output list EXACTLY matches the number of data items :{batch_size} in the input.
-
-You will receive a batch of {batch_size} data items in json format. 
-----------------batch_retrieved_data----------------
-{batch_retrieved_data}
-
-Important notes:
-- The order of your relevance scores must match the exact order of the data items in the input.
-- Maintain consistency in your scoring method across all data items.
-- Do not include any explanations or additional text outside the Pydantic object.
-- If you find that your score list does not match the number of data items : {batch_size}, you MUST redo the entire process until it does.
-
-Your output must be a Pydantic object of the RerankingResult class with the following structure:
-class RerankingResult(BaseModel):
-    relevant_scores: List[int]
-
-FINAL CHECK: Before submitting your response, be sure that the scores list contains exactly {batch_size} relevance scores.
-""")
-
-RERANKING_EXPECTED_OUTPUT = dedent("""
-Your output should be a RerankingResult object.
-class RerankingResult(BaseModel):
-    relevance_scores: List[int]
-""")
-
 # Information Organization Task
 INFORMATION_ORGANIZATION_PROMPT = dedent("""
 Input:
-1. Retrieved Data: {retrieved_data}
-2. Community Information: {community_information}
-3. User Query: {user_query}
+1. User Query: {user_query}
+2. Sub-queries relevant to the user's query: {sub_queries}
+3. Retrieved Data: {retrieved_data}
 
 Your tasks:
-1. Carefully review and categorize the retrieved data and community information.
-2. Organize the information into coherent themes or topics, even if the original data is fragmented.
-3. Preserve the original language, especially modal verbs like "shall", "may", "must", etc., that indicate levels of certainty or possibility.
+1. Carefully review the retrieved data.
+2. Pick up helpful information from the retrieved data to answer the user's query and remove the irrelevant information.
+3. Organize and aggregate the information into strings and preserve the original language, especially modal verbs like "shall", "may", "must", etc., that indicate levels of certainty or possibility.
 4. Identify and highlight any connections or contradictions between different pieces of information.
-5. Structure the data in a way that facilitates easy understanding and future use, without losing important details or nuances.
-6. Include relevant metadata, organizing it alongside the corresponding information.
-7. Clearly indicate areas where information is lacking or insufficient.
+5. Structure the data in a way that facilitates easy understanding, without losing important details or nuances.
+6. Include relevant metadata, timestamps, organizing it alongside the corresponding information.
+7. Return the organized information in a pydantic object:
+8. If the user query requires temporal information, generate an additional string that describes the chronological order of helpful information.
 
+class InformationOrganizationResult(BaseModel):
+    organized_information: List[str]
+    
 Guidelines:
 - Maintain the integrity of the original information. Do not add, infer, or fabricate any information not present in the original data.
-- Use direct quotes where appropriate to preserve exact phrasing, especially for key points or when modal verbs are used.
+- Be very careful with temporal information especially for user queries that ask about time.
 - If information seems contradictory or inconsistent, note this without attempting to resolve the contradiction.
-- Highlight gaps in the information or areas where data is insufficient.
-- Maintain objectivity and avoid interpreting or drawing conclusions from the data.
-- If there's not enough information on a particular aspect, clearly state this rather than making assumptions.
-
 """)
 
 INFORMATION_ORGANIZATION_EXPECTED_OUTPUT = dedent("""
-Your output should be a single string containing:
-1. A well-structured organization of the information, grouped by themes or topics.
-2. Direct quotes and preserved modal verbs where relevant.
-3. Noted connections, contradictions, or gaps in the information.
-4. Relevant metadata integrated alongside the corresponding information.
-5. Clear indications of areas where information is lacking or insufficient.
-
-This output will serve as an organized, faithful representation of the original data for subsequent processing and response generation.
+Your output should be a pydantic object of type InformationOrganizationResult with the following structure:
+class InformationOrganizationResult(BaseModel):
+    organized_information: List[str]
 """)                    
 
 # Response Generation Task
 GENERATION_PROMPT = dedent("""
-If there is no information from the previous steps, you can directly answer the user's query,
-However, tell the user that you don't have enough information to answer the query.
-And if there is information, analyze the reranked data and formulate a comprehensive answer to the user's query.
+Original user query: {user_query} 
+Relevant sub-queries: {sub_queries}
+Retrieval Needed: {retrieval_needed}
 
-Original user query: {user_query}
+---Information---
+{information}
 
 Your task:
-1. Review the original user query.
-2. Carefully examine the data provided by the information organizer for each sub-query.
-3. Synthesize all the information to form a coherent and comprehensive answer that addresses the original user query.
-4. Ensure that your response covers all aspects of the user's query and the derived sub-queries.
-5. Identify key findings, insights, and connections across all the data.
-6. Provide a detailed analysis, breaking down the answer into relevant topics or aspects.
-7. Assess the confidence level of your analysis based on the available data.
-8. Identify any limitations in the data or analysis.
-
-Your output should be a comprehensive analysis that ties together all the information from the sub-queries to directly address the original user query.
+1. If the query contains negations or complex logic, explicitly define your understanding of key terms (e.g., "inconsistent").
+2. If Retrieval_Needed is True, and you don't have enough information to generate a response, state that Insufficient information.
+3. Otherwise, generate a response based on general knowledge or the information provided.
+4. Review the original user query and relevant sub-queries.
+5. Carefully examine the data provided for each sub-query, especially temporal, comparative, and conditional information.
+6. Structure your response as follows:
+   a) Short Answer: At the very beginning of your response, provide a direct, concise answer 
+   (e.g., Yes/No for yes/no, did/didn't, have/haven't questions, or specific information for other types of queries.)
+   b) Detailed Explanation: Explain your answer comprehensively.
+   c) For example: [Yes/No/Specific information] [Comprehensive explanation]
+8. Perform a logic check: Ensure your short answer logically aligns with your detailed explanation and the original query.
+8. Self-verify: Before finalizing, double-check that your answer directly addresses the original query: {user_query}
 """)
 
 GENERATION_EXPECTED_OUTPUT = dedent("""
-"A comprehensive analysis answering the user's original query based on all the provided data from sub-queries."
+"A direct answer and a comprehensive analysis answering the user's original query based on all the provided data from sub-queries."
 """)
 
 

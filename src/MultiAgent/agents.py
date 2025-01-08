@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI
 from .tools import Tools
 # from Frontend import * 
 from langchain_core.callbacks.base import BaseCallbackHandler
+import Config.constants as const 
 
 class Agents:
     def __init__(self, temperature: float, model_name: str, tools: Tools):
@@ -34,7 +35,8 @@ class Agents:
         self.create_classifier = self._classifier()
         self.create_topic_searcher = self._topic_searcher()
         self.create_retriever = self._retriever()
-        self.create_reranker = self._reranker()
+        # self.create_reranker = self._reranker()
+        self.create_synthesizer = self._synthesizer()
         self.create_information_organizer = self._information_organizer()
         self.create_generator = self._generator()
         self.create_response_auditor = self._response_auditor()
@@ -46,7 +48,8 @@ class Agents:
             "Query Processor": self.create_query_processor,
             "Topic Searcher": self.create_topic_searcher,
             "Retriever": self.create_retriever,
-            "Reranker": self.create_reranker,
+            # "Reranker": self.create_reranker,
+            "Synthesizer": self.create_synthesizer,
             "Information Organizer": self.create_information_organizer,
             "Generator": self.create_generator,
             "Response Auditor": self.create_response_auditor,
@@ -72,60 +75,6 @@ class Agents:
             else:
                 raise ValueError(f"Agent '{agent_name}' not found in agent_map.")
         return agents_list
-    
-    # # Getters for all agents in nodes
-    # def get_user_query_classification_node_agent(self):
-    #     return [
-    #         self.create_classifier,
-    #     ]
-        
-    # def get_retrieval_and_generation_node_agent(self):
-    #     return [
-    #         self.create_retriever,
-    #         self.create_reranker,
-    #         self.create_generator,
-    #         self.create_summarizer,
-    #         self.create_response_auditor,
-    #     ]
-        
-    # def get_generation_node_agent(self):
-    #     return [
-    #         self.create_generator,
-    #         self.create_summarizer,
-    #         self.create_response_auditor,
-    #     ]
-        
-    # def get_database_update_node_agent(self):
-    #     return [
-    #         self.create_database_updater,
-    #     ]
-    
-    # # Getters for all agents in overall process
-    # def get_sequential_agents(self):
-    #     return [
-    #         self.create_classifier,
-    #         self.create_plan_coordinator, # Only Plan Coordinator is used in Sequential
-    #         self.create_query_processor,
-    #         self.create_retriever,
-    #         self.create_reranker,
-    #         self.create_generator,
-    #         self.create_summarizer,
-    #         self.create_response_auditor,
-    #         self.create_database_updater,
-    #     ]
-        
-    # def get_hierarchical_agents(self):
-    #     return [
-    #         self.create_classifier,
-    #         self.create_query_processor,
-    #         self.create_retriever,
-    #         self.create_reranker,
-    #         self.create_generator,
-    #         self.create_summarizer,
-    #         self.create_response_auditor,
-    #         self.create_database_updater,
-    #     ]
-    
         
     # Agent definitions
     def _classifier(self):
@@ -142,9 +91,9 @@ class Agents:
             Your expertise lies in understanding the nuances of human queries and efficiently 
             categorizing them for optimal processing.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
@@ -161,9 +110,9 @@ class Agents:
             into manageable steps. Your experience in coordinating diverse teams makes you 
             the perfect fit for organizing the efforts of various specialized agents.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
@@ -180,9 +129,9 @@ class Agents:
             Your background in computational linguistics allows you to effortlessly transform and 
             decompose complex queries into their most effective forms.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
@@ -201,9 +150,9 @@ class Agents:
             Your years of experience in managing vast amounts of data have honed your skills in 
             quickly identifying key topics and their relationships.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
@@ -220,32 +169,30 @@ class Agents:
             Your ability to quickly sift through large datasets and pinpoint relevant information 
             is unparalleled.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
         
-    def _reranker(self):
+    def _synthesizer(self):
         return Agent(
-            role='Reranker',
-            goal="""Evaluate and reorder retrieved data based on query relevance,
-            and assess the relevance of retrieved data to the original query.
-            You need to carefully compare each piece of data to the query, assign a relevance score,
-            """,
+            role='Synthesizer',
+            goal="""
+            Summarize and synthesize information from various communities accurately, without fabrication or alteration of original content.
+            Generate creative, speculative answers based on the synthesized information to address user queries.""",
             backstory="""
-            You are a former search engine optimizer with a keen eye for relevance. Your experience 
-            in ranking information has given you unique insights into assessing and prioritizing 
-            information based on its pertinence to a given query.
+            An experienced information synthesis analyst skilled in extracting key insights from diverse data sources, 
+            identifying patterns, and generating both factual summaries and creative interpretations.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
-
+        
     def _information_organizer(self):
         return Agent(
             role='Information Organizer',
@@ -256,9 +203,9 @@ class Agents:
             Your unique ability to identify key concepts and connect diverse information has aided numerous breakthroughs across various fields.
             You approach each task eagerly, seeing it as a chance to uncover and present crucial insights that empower decision-makers and innovators.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             cache=True,
             allow_delegation=False,
     #         callbacks=[self.callback_function],   
@@ -267,16 +214,16 @@ class Agents:
     def _generator(self):
         return Agent(
             role='Generator',
-            goal='Analyze data and generate insights on the data retrieved to reponse to user query.',
+            goal='Analyze data and generate insights on the data retrieved to response to user query.',
             backstory="""
             You are a veteran analyst with decades of experience in data interpretation and query resolution. 
             Your career in both academia and industry has honed your ability to swiftly connect user queries 
             with relevant information, distilling complex data into clear, accurate answers. Known for your 
             precision and insight, you excel at crafting responses that directly address the heart of each query.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
@@ -294,9 +241,9 @@ class Agents:
             for accuracy, relevance, and completeness. You take pride in your ability to spot 
             discrepancies and suggest improvements, ensuring that every answer meets the highest standards.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
@@ -311,12 +258,29 @@ class Agents:
             talent for structuring information in ways that enhance its accessibility and usefulness 
             for future queries, ensuring that the knowledge base remains up-to-date and valuable.
             """,
-            verbose=True,
+            verbose=const.CREWAI_AGENT_VERBOSE,
             llm=self.llm,
-            memory=True,
+            memory=const.CREWAI_AGENT_MEMORY,
             cache=True,
             allow_delegation=False,
 #             callbacks=[self.callback_function],
         )
         
-    
+#     def _reranker(self):
+#         return Agent(
+#             role='Reranker',
+#             goal="""Evaluate and reorder retrieved data based on query relevance,
+#             and assess the relevance of retrieved data to the original query.
+#             You need to carefully compare each piece of data to the query, assign a relevance score,
+#             """,
+#             backstory="""
+#             You are a former search engine optimizer with a keen eye for relevance. Your experience 
+#             in ranking information has given you unique insights into assessing and prioritizing 
+#             information based on its pertinence to a given query.
+#             """,
+#             verbose=const.CREWAI_AGENT_VERBOSE,
+#             llm=self.llm,
+#             memory=const.CREWAI_AGENT_MEMORY,
+#             allow_delegation=False,
+# #             callbacks=[self.callback_function],
+#         )
