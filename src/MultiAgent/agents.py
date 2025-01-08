@@ -214,7 +214,7 @@ class Agents:
     def _generator(self):
         return Agent(
             role='Generator',
-            goal='Analyze data and generate insights on the data retrieved to reponse to user query.',
+            goal='Analyze data and generate insights on the data retrieved to response to user query.',
             backstory="""
             You are a veteran analyst with decades of experience in data interpretation and query resolution. 
             Your career in both academia and industry has honed your ability to swiftly connect user queries 
