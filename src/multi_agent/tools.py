@@ -1,9 +1,9 @@
 from pydantic import Field, BaseModel
-from Utils import *
+from utils import *
 from crewai_tools import BaseTool
 from typing import List, Dict, Any, Tuple
 import statistics
-import Config.constants as const
+import config.constants as const
 import json
 
 class ListAllCollectionsTool(BaseTool):

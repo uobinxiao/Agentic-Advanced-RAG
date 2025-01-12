@@ -1,15 +1,15 @@
 from dotenv import load_dotenv
 from crewai import Crew, Process
 
-from Utils import *
-import Config.constants as const
+from utils import *
+import config.constants as const
 
 from .tools import Tools
 from .tasks import Tasks
 from .agents import Agents
 
-from Config.output_pydantic import TopicRerankingResult, RerankingResult
-from Config.rag_config import RAGConfig
+from config.output_pydantic import TopicRerankingResult, RerankingResult
+from config.rag_config import RAGConfig
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
